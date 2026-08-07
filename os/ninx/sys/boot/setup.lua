@@ -106,7 +106,7 @@ local function showUsers()
       if u.perms and u.perms.sudo  then table.insert(permbadges,"sudo") end
       local badge = #permbadges > 0 and (" [" .. table.concat(permbadges,",") .. "]") or ""
       local hasPasswd = u.hash and "password set" or "no password"
-      p("  • " .. u.name .. badge .. "  (" .. hasPasswd .. ")", C_FG)
+      p("  - " .. u.name .. badge .. "  (" .. hasPasswd .. ")", C_FG)
     end
   end
 end

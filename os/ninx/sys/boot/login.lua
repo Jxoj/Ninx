@@ -59,7 +59,7 @@ local function selectUser()
   local function draw()
     clr()
     center(2, "NINX LOGIN", C_SEL_FG, C_SEL_BG)
-    center(4, "Use \24\25 arrows and Enter to select user", C_DIM)
+    center(4, "Use Up/Down arrows and Enter to select user", C_DIM)
     for i, u in ipairs(db) do
       local y = 6 + (i-1)
       term.setCursorPos(math.floor(W/2)-8, y)

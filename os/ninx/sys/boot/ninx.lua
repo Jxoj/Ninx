@@ -114,7 +114,7 @@ local function bootUpdateCheck()
     term.setTextColor(colors.orange)
     print("[NAM] " .. #updates .. " package update(s) available:")
     term.setTextColor(colors.gray)
-    for _, u in ipairs(updates) do print("  • " .. u) end
+    for _, u in ipairs(updates) do print("  - " .. u) end
     print("  Run 'sudo nam update' to upgrade.")
     term.setTextColor(colors.white)
     sleep(2)

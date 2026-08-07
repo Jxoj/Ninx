@@ -37,14 +37,24 @@ def read_nambuild(devpkgs_dir: Path) -> dict:
     if not nb_path.exists():
         print(f"[Warn] No nambuild.json found in {devpkgs_dir}. Using defaults.")
         return {}
-    with open(nb_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(nb_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except json.decoder.JSONDecodeError as e:
+        print(f"[Error] Malformed JSON in {nb_path}: {e}")
+        print("Please check for trailing commas or other syntax errors.")
+        sys.exit(1)
 
 def load_repo_json(path: Path) -> list:
     if not path.exists():
         return []
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except json.decoder.JSONDecodeError:
+        print(f"[Warn] {path} is empty or malformed. Starting fresh.")
+        return []
 
 def save_repo_json(path: Path, data: list):
     path.parent.mkdir(parents=True, exist_ok=True)
