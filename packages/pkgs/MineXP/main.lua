@@ -41,8 +41,8 @@
 -- Do not keep anything important in the recycling folder!
 -- Use 'Undo' if you accidentally delete an important file.
 
-recycleDir = "/nova/temp/minexp/"
-cfgDir = "/nova/packages/gui/minexp/"
+recycleDir = "/ninx/temp/minexp/"
+cfgDir = "/ninx/packages/gui/minexp/"
 
 --
 	settings.clear()

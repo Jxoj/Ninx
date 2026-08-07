@@ -6,7 +6,7 @@ local keys = keys
 local colors = colors
 
 local function runKernel()
-  pcall(function() shell.run("/nova/.sys/boot/kernel.lua") end)
+  pcall(function() shell.run("/ninx/.sys/boot/kernel.lua") end)
 end
 
 local function monitorCtrlB()
@@ -18,7 +18,7 @@ local function monitorCtrlB()
         ctrlDown = true
       elseif k == keys.b and ctrlDown then
         term.setTextColor(colors.white)
-        pcall(function() shell.run("/nova/.sys/bios.lua") end)
+        pcall(function() shell.run("/ninx/.sys/bios.lua") end)
         term.setTextColor(colors.white)
       end
     elseif ev == "key_up" then

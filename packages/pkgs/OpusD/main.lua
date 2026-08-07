@@ -3,7 +3,7 @@ local tempDir = "temp"
 local tempFile = fs.combine(tempDir, "sn.lua")
 local flagFile = fs.combine(tempDir, "onb")
 local startupFile = "startup.lua"
-local optionsFile = "nova/sys/boot/options.txt"
+local optionsFile = "ninx/sys/boot/options.txt"
 local lineToAdd = "Opus\tsys/boot/opus.lua"
 
 -- Ensure temp folder exists
@@ -41,7 +41,7 @@ end
 
 print("Ready to run the Opus installer.")
 sleep(1)
-fs.move("nova/packages/Startup_Restore.lua", "nova/packages/sr.lua")
-print("Once in Opus open shell and run temp/sn.lua and, once in Nova run sr.")
+fs.move("ninx/packages/Startup_Restore.lua", "ninx/packages/sr.lua")
+print("Once in Opus open shell and run temp/sn.lua and, once in Ninx run sr.")
 sleep(1.8)
-shell.run("nova/packages/Opus_Installer.lua")
+shell.run("ninx/packages/Opus_Installer.lua")
