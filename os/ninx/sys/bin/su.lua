@@ -1,4 +1,4 @@
--- su.lua  Ninx su — switch to root
+-- su.lua  Ninx su - switch to root
 -- Usage: su
 -- Prompts for root password, then sets NINX_ROOT = true and relaunches shell.
 
@@ -7,7 +7,7 @@ local U = dofile("/ninx/.sys/users.lua")
 -- Check user has root permission
 if not U.hasPerm(U.currentUser(), "root") then
   term.setTextColor(colors.red)
-  print("su: permission denied — user '" .. U.currentUser() .. "' does not have root permission.")
+  print("su: permission denied - user '" .. U.currentUser() .. "' does not have root permission.")
   term.setTextColor(colors.white)
   return
 end
@@ -40,7 +40,7 @@ while attempts > 0 do
   if authed then ok = true; break end
   attempts = attempts - 1
   term.setTextColor(colors.red)
-  print("Wrong password" .. (attempts > 0 and (" — " .. attempts .. " attempt(s) remaining") or "."))
+  print("Wrong password" .. (attempts > 0 and (" - " .. attempts .. " attempt(s) remaining") or "."))
   term.setTextColor(colors.white)
 end
 

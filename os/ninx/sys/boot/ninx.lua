@@ -21,7 +21,7 @@ local function runUserSystem()
   end
 
   if U.isFirstBoot() then
-    colourPrint("Info", colors.yellow, "First boot — launching setup...")
+    colourPrint("Info", colors.yellow, "First boot - launching setup...")
     sleep(0.5)
     local ok2, err2 = pcall(function() shell.run("/ninx/.sys/boot/setup.lua") end)
     if not ok2 then

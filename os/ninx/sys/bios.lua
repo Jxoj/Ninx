@@ -302,7 +302,7 @@ while running do
   if running then redraw() end
 end
 
--- Clean exit — restore terminal
+-- Clean exit - restore terminal
 term.setBackgroundColor(colors.black); term.setTextColor(colors.white); term.clear(); term.setCursorPos(1,1)
 if unsaved then
   term.setTextColor(colors.orange); print("BIOS: exited without saving staged changes.")

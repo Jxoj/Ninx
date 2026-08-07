@@ -90,7 +90,7 @@ function zip.extract(data, destDir)
       if pos < 1 then pos = 1 end
 
     elseif sig == 0x02014b50 or sig == 0x06054b50 then
-      -- Central directory or EOCD — we're done
+      -- Central directory or EOCD - we're done
       break
     else
       pos = pos + 1

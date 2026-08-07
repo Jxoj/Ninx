@@ -1,4 +1,4 @@
--- sudo.lua  Ninx sudo — run command with elevated permissions
+-- sudo.lua  Ninx sudo - run command with elevated permissions
 -- Usage: sudo <command> [args...]
 
 local U = dofile("/ninx/.sys/users.lua")

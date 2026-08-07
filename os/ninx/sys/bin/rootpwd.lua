@@ -6,7 +6,7 @@ local U = dofile("/ninx/.sys/users.lua")
 
 if not U.hasPerm(U.currentUser(), "root") and not U.isRoot() then
   term.setTextColor(colors.red)
-  print("rootpwd: permission denied — root permission required.")
+  print("rootpwd: permission denied - root permission required.")
   term.setTextColor(colors.white)
   return
 end

@@ -38,60 +38,32 @@ local function makePrompt()
   return user .. "@ninx:" .. cwd .. suffix .. " "
 end
 
--- ─── Permission sandbox for packages ─────────────────────────────────────────
-local function runWithSandbox(path, args)
-  local user = currentUser()
-  local home = "/ninx/usr/" .. user .. "/home"
-  local usingSudo = _G.NINX_SUDO or isRoot()
-
-  -- Load users lib lazily
-  local U
-  pcall(function() U = dofile("/ninx/.sys/users.lua") end)
+-- ─── Permission sandbox (Global FS Hook) ───────────────────────────────────────
+if not _G.fs._ninx_hooked then
+  local origFs = {}
+  for k,v in pairs(_G.fs) do origFs[k]=v end
+  _G.fs._ninx_hooked = true
+  _G.fs._orig = origFs
 
   local function checkWrite(dest)
-    if isRoot() then return true end
-    if not U then return true end
-    local ok = U.mayWrite(dest, usingSudo)
-    if not ok then
-      error("No Permission: " .. tostring(dest), 2)
+    if _G.NINX_ROOT then return true end
+    local usingSudo = _G.NINX_SUDO
+    local ok, U = pcall(dofile, "/ninx/.sys/users.lua")
+    if not ok then return true end
+    if not U.mayWrite(dest, usingSudo) then
+      error("No Permission: " .. tostring(dest), 3)
     end
     return true
   end
 
-  -- Build a sandboxed environment
-  local env = setmetatable({}, {__index = _G})
-  local origFs = {}
-  for k,v in pairs(fs) do origFs[k]=v end
-
-  env.fs = setmetatable({}, {__index = origFs})
-  env.fs.open   = function(p, mode, ...)
-    if mode and mode:sub(1,1)=="w" then checkWrite(p) end
+  _G.fs.open = function(p, mode, ...)
+    if mode and (mode:sub(1,1)=="w" or mode:sub(1,1)=="a") then checkWrite(p) end
     return origFs.open(p, mode, ...)
   end
-  env.fs.delete = function(p) checkWrite(p); return origFs.delete(p) end
-  env.fs.move   = function(src, dst) checkWrite(dst); return origFs.move(src,dst) end
-  env.fs.copy   = function(src, dst) checkWrite(dst); return origFs.copy(src,dst) end
-  env.fs.makeDir = function(p) checkWrite(p); return origFs.makeDir(p) end
-
-  local fn, err = loadfile(path)
-  if not fn then
-    term.setTextColor(colors.red); print("Error loading " .. path .. ": " .. tostring(err)); term.setTextColor(colors.white)
-    return false
-  end
-  setfenv(fn, env)
-
-  local ok2, err2 = pcall(fn, unpack(args or {}))
-  if not ok2 then
-    term.setTextColor(colors.red)
-    if tostring(err2):find("No Permission") then
-      print("No Permission: " .. tostring(err2))
-    else
-      print("Error: " .. tostring(err2))
-    end
-    term.setTextColor(colors.white)
-    return false
-  end
-  return true
+  _G.fs.delete = function(p) checkWrite(p); return origFs.delete(p) end
+  _G.fs.move = function(s, d) checkWrite(s); checkWrite(d); return origFs.move(s,d) end
+  _G.fs.copy = function(s, d) checkWrite(d); return origFs.copy(s,d) end
+  _G.fs.makeDir = function(p) checkWrite(p); return origFs.makeDir(p) end
 end
 
 -- ─── Run helpers ──────────────────────────────────────────────────────────────
@@ -111,13 +83,13 @@ local function tryRunPackage(name, args)
   local dir  = PKG_DIR .. "/" .. name
   local main = dir .. "/main.lua"
   if fs.exists(main) then
-    runWithSandbox(main, args)
+    runBin(main, args)
     return true
   end
   -- Legacy: flat .lua in packages dir
   local flat = PKG_DIR .. "/" .. name .. ".lua"
   if fs.exists(flat) then
-    runWithSandbox(flat, args)
+    runBin(flat, args)
     return true
   end
   return false
@@ -133,7 +105,7 @@ local function printHelp()
   print(" Shell v2.0")
   print("Builtins: help, clear, exit, cd <dir>, ls, pwd, ver")
   print("Commands in /ninx/.sys/bin: nam, usr, sudo, su, rootpwd, ...")
-  print("Packages in /ninx/packages/<name>/main.lua — type the name to run")
+  print("Packages in /ninx/packages/<name>/main.lua - type the name to run")
 end
 
 local function doCD(args)
@@ -315,7 +287,7 @@ end
 local function repl()
   -- Welcome
   term.setTextColor(colors.orange); io.write("Ninx")
-  term.setTextColor(colors.white); print(" Shell v2.0 — type 'help' for info")
+  term.setTextColor(colors.white); print(" Shell v2.0 - type 'help' for info")
   safeSetCursorBlink(true)
 
   while true do
@@ -368,7 +340,7 @@ local function repl()
           if fs.isDir(cmd) then
             doCD({cmd}); matched = true
           else
-            runWithSandbox(cmd, args); matched = true
+            runBin(cmd, args); matched = true
           end
         else
           term.setTextColor(colors.red); print("File not found: "..cmd); term.setTextColor(colors.white)
@@ -405,7 +377,7 @@ if initArgs and #initArgs>0 and initArgs[1]~="" then
   local pArgs = {}
   for i=2,#initArgs do pArgs[#pArgs+1]=initArgs[i] end
   local ok, err = pcall(function()
-    runWithSandbox(prog, pArgs)
+    runBin(prog, pArgs)
   end)
   if not ok then
     term.setTextColor(colors.red); print("Error: "..tostring(err)); term.setTextColor(colors.white)

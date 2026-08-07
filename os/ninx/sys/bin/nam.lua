@@ -272,7 +272,7 @@ end
 
 -- ─── Usage ────────────────────────────────────────────────────────────────────
 local function usage()
-  col(colors.orange, "nam"); println(" — Ninx Application Manager v2.0")
+  col(colors.orange, "nam"); println(" - Ninx Application Manager v2.0")
   println("  install <pkg> [pkg2...]   Install packages (requires sudo)")
   println("  remove  <pkg> [pkg2...]   Remove packages (requires sudo)")
   println("  update                    Check and update all installed packages (requires sudo)")
