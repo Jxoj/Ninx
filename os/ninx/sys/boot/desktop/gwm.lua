@@ -20,17 +20,17 @@ local SHADOW_ENABLE = false
 local DRAG_MOVE = 0
 local DRAG_RESIZE = 1
 local WM_COLORS = {
-    bg = colors.purple,
+    bg = colors.orange,
     shadow = colors.gray,
-    title_unfocused = colors.blue,
-    title_focused = colors.magenta,
+    title_unfocused = colors.orange,
+    title_focused = colors.orange,
     title_text = colors.white,
     title_close = colors.red,
     resize_bg = colors.white,
     resize_fg = colors.lightGray,
     menu = colors.white,
     menu_text = colors.black,
-    menu_sel = colors.blue,
+    menu_sel = colors.orange,
     menu_sel_text = colors.white,
     run = colors.white,
     run_text = colors.black
@@ -533,7 +533,7 @@ local function show_run_menu()
                 for _, f in ipairs(list) do
                     if f:sub(-4) == ".lua" then
                         local name = f:sub(1, -5)
-                        table.insert(pkgItems, { label = name, file = f, color = colors.purple })
+                        table.insert(pkgItems, { label = name, file = f, color = colors.orange })
                     end
                 end
             end

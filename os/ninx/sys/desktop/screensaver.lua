@@ -16,10 +16,10 @@ local digits = {
     ["9"] = { {1,1,1,1,1},{1,0,0,0,1},{1,1,1,1,1},{0,0,0,0,1},{1,1,1,1,1}, },
     [":"] = { {0,0,0,0,0},{0,1,0,1,0},{0,0,0,0,0},{0,1,0,1,0},{0,0,0,0,0}, }
 }
-term.setBackgroundColor(colors.purple)
+term.setBackgroundColor(colors.orange)
 term.clear()
 local function drawTitle()
-    term.setBackgroundColor(colors.purple)
+    term.setBackgroundColor(colors.orange)
     term.setTextColor(colors.white)
     local x = math.max(1, math.floor((scr_x - #title) / 2))
     term.setCursorPos(x, 1)
@@ -34,7 +34,7 @@ local function drawDigit(x, y, ch)
             if pattern[r][c] == 1 then
                 term.setBackgroundColor(colors.white)
             else
-                term.setBackgroundColor(colors.purple)
+                term.setBackgroundColor(colors.orange)
             end
             term.write(" ")
         end
@@ -59,7 +59,7 @@ end
 local running = true
 local function mainLoop()
     while running do
-        term.setBackgroundColor(colors.purple)
+        term.setBackgroundColor(colors.orange)
         term.clear()
         drawTitle()
         term.setTextColor(colors.white)

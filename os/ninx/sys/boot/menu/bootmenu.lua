@@ -54,10 +54,10 @@ local function centerText(y, text, textColor)
   local w,_=term.getSize(); term.setCursorPos(math.floor((w-#text)/2)+1, y); term.setTextColor(textColor or colors.white); term.write(text); term.setTextColor(colors.white)
 end
 local function drawMenu(options, selected, countdown)
-  clearScreen(); centerText(2, "Ninx Bootmenu", colors.blue); centerText(4, "Use Up/Down to choose, Enter to boot", colors.lightGray)
+  clearScreen(); centerText(2, "Ninx Bootmenu", colors.orange); centerText(4, "Use Up/Down to choose, Enter to boot", colors.lightGray)
   for i, opt in ipairs(options) do
     term.setCursorPos(5, i+6); term.setBackgroundColor(colors.black)
-    if i == selected then term.setTextColor(colors.purple); write("> "..opt.name.." <"); term.setTextColor(colors.white) else term.setTextColor(colors.white); write("  "..opt.name) end
+    if i == selected then term.setTextColor(colors.orange); write("> "..opt.name.." <"); term.setTextColor(colors.white) else term.setTextColor(colors.white); write("  "..opt.name) end
   end
   term.setCursorPos(1,15); term.setBackgroundColor(colors.black); term.setTextColor(colors.lightGray)
   if countdownActive then centerText(15, "Booting default in "..countdown.."s") else centerText(15, "Press Enter to boot") end

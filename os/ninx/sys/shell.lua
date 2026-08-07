@@ -41,7 +41,7 @@ local commands = {}
 commands.about = function(args)
   term.setTextColor(colors.white)
   io.write("")
-  term.setTextColor(colors.purple)
+  term.setTextColor(colors.orange)
   io.write("Ninx")
   term.setTextColor(colors.white)
   print(" Shell 1.0")
@@ -92,7 +92,7 @@ end
 
 local function runOnTop(path, args)
   if DEBUG_RUNMODE then
-    term.setTextColor(colors.lightBlue)
+    term.setTextColor(colors.orange)
     print("Starting (ON-TOP): " .. tostring(path))
     term.setTextColor(colors.white)
   end
@@ -101,7 +101,7 @@ local function runOnTop(path, args)
   end)
   if ok then
     if DEBUG_RUNMODE then
-      term.setTextColor(colors.lightBlue)
+      term.setTextColor(colors.orange)
       print("Finished (ON-TOP): " .. tostring(path))
       term.setTextColor(colors.white)
     end
@@ -205,7 +205,7 @@ end
 local function printHelp()
   term.setTextColor(colors.white)
   io.write("")
-  term.setTextColor(colors.purple)
+  term.setTextColor(colors.orange)
   io.write("Ninx")
   term.setTextColor(colors.white)
   print(" Shell 1.0 - help")
@@ -232,7 +232,7 @@ end
 local function repl()
   term.setTextColor(colors.white)
   io.write("Welcome to ")
-  term.setTextColor(colors.purple)
+  term.setTextColor(colors.orange)
   io.write("Ninx")
   term.setTextColor(colors.white)
   print(" Shell 1.0 - type 'help' for more info.")
@@ -374,7 +374,7 @@ local function repl()
                 term.setTextColor(colors.white)
                 local joined = table.concat(comp, ", ")
                 print(joined)
-                term.setTextColor(colors.purple)
+                term.setTextColor(colors.orange)
                 local computerName = os.getComputerLabel() or ("Computer" .. os.getComputerID())
                 term.write("[" .. computerName .. "] > ")
                 baseX, baseY = term.getCursorPos()
@@ -414,7 +414,7 @@ local function repl()
               term.setTextColor(colors.white)
             end
           end
-          term.setTextColor(colors.purple)
+          term.setTextColor(colors.orange)
           local computerName = os.getComputerLabel() or ("Computer" .. os.getComputerID())
           term.write("[" .. computerName .. "] > ")
           baseX, baseY = term.getCursorPos()
@@ -429,10 +429,10 @@ local function repl()
     end
   end
   while true do
-    term.setTextColor(colors.purple)
+    term.setTextColor(colors.orange)
     local computerName = os.getComputerLabel() or ("Computer" .. os.getComputerID())
     term.write("[" .. computerName .. "] > ")
-    term.setTextColor(colors.purple)
+    term.setTextColor(colors.orange)
     
     safeSetCursorBlink(true)
     local ok, line = pcall(function() return readWithIdle(60, completion) end)

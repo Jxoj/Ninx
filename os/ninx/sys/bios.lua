@@ -61,9 +61,9 @@ local selInterface = 1
 local selWM = 1
 for i,v in ipairs(wmChoices) do if v:lower() == stagedWM:lower() then selWM = i; break end end
 local depth = 1
-local C_BG = colors.white
-local C_TEXT = colors.black
-local C_HEADER = colors.purple
+local C_BG = colors.black
+local C_TEXT = colors.white
+local C_HEADER = colors.orange
 local C_HEADER_TEXT = colors.white
 local C_SEL_BG = colors.black
 local C_SEL_TEXT = colors.white

@@ -1,0 +1,79 @@
+-- Ninx Installer
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.orange)
+term.clear()
+term.setCursorPos(1, 1)
+
+print("==============================")
+print("       Ninx Installer         ")
+print("==============================")
+print("Downloading files...")
+print("")
+
+local files = {
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/startup.lua", dest = "startup.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/shell.lua", dest = "ninx/.sys/shell.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/v", dest = "ninx/.sys/v" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bios.lua", dest = "ninx/.sys/bios.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/kernel.lua", dest = "ninx/.sys/boot/kernel.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/ninx.lua", dest = "ninx/.sys/boot/ninx.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/menu/bootmenu.lua", dest = "ninx/.sys/boot/menu/bootmenu.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/menu/shutdown1.lua", dest = "ninx/.sys/boot/menu/shutdown1.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/menu/reboot1.lua", dest = "ninx/.sys/boot/menu/reboot1.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/desktop/workspace.lua", dest = "ninx/.sys/boot/desktop/workspace.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/boot/desktop/gwm.lua", dest = "ninx/.sys/boot/desktop/gwm.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/utils/loading.lua", dest = "ninx/.sys/utils/loading.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/utils/autofill.lua", dest = "ninx/.sys/utils/autofill.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/desktop/screensaver.lua", dest = "ninx/.sys/desktop/screensaver.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bin/mv.lua", dest = "ninx/.sys/bin/mv.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bin/dir.lua", dest = "ninx/.sys/bin/dir.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bin/rm.lua", dest = "ninx/.sys/bin/rm.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bin/nam.lua", dest = "ninx/.sys/bin/nam.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bin/ls.lua", dest = "ninx/.sys/bin/ls.lua" },
+  { url = "https://raw.githubusercontent.com/Jxoj/Ninx/main/os/ninx/sys/bin/cp.lua", dest = "ninx/.sys/bin/cp.lua" },
+}
+
+local function getFile(url, dest)
+    write("Downloading " .. dest .. "... ")
+    local res = http.get(url)
+    if res then
+        local content = res.readAll()
+        res.close()
+        
+        -- Create directories if they don't exist
+        local dir = fs.getDir(dest)
+        if not fs.exists(dir) then
+            fs.makeDir(dir)
+        end
+        
+        local f = fs.open(dest, "w")
+        if f then
+            f.write(content)
+            f.close()
+            print("OK")
+            return true
+        else
+            print("Failed to write")
+            return false
+        end
+    else
+        print("Failed to download")
+        return false
+    end
+end
+
+local success = true
+for _, file in ipairs(files) do
+    if not getFile(file.url, file.dest) then
+        success = false
+    end
+end
+
+print("")
+if success then
+    print("Installation complete! Rebooting in 3 seconds...")
+    os.sleep(3)
+    os.reboot()
+else
+    print("Installation finished with errors.")
+end

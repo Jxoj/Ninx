@@ -15,9 +15,9 @@ local frameDelay = 0.05
 local duration = 3
 local cx = math.floor(w / 2)
 local cy = math.floor(h / 2)
-local function fillBackground() term.setBackgroundColor(colors.purple); term.clear() end
+local function fillBackground() term.setBackgroundColor(colors.orange); term.clear() end
 local function drawSpinner(phase)
-  term.setBackgroundColor(colors.purple); term.setTextColor(colors.white)
+  term.setBackgroundColor(colors.orange); term.setTextColor(colors.white)
   local drawn = {}
   for i = 0, cells - 1 do
     local angle = (i / cells) * (2 * math.pi) + phase
@@ -31,7 +31,7 @@ local function drawSpinner(phase)
       term.write(" ")
     end
   end
-  term.setBackgroundColor(colors.purple)
+  term.setBackgroundColor(colors.orange)
 end
 local function runSpinner()
   if term.setCursorBlink then pcall(term.setCursorBlink, false) end
