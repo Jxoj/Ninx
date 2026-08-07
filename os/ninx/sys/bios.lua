@@ -1,111 +1,310 @@
+-- bios.lua  Ninx BIOS Configuration Utility  v2.0
+-- Orange/black theme. Called by kernel when 'B' pressed during boot.
+-- Returns cleanly without crashing the caller.
 
-
-local term = term
-local fs = fs
-local os = os
-local keys = keys
-local colors = colors
-local sleep = sleep
 local CONFIG_PATH = "/ninx/.sys/config/sys.cfg"
 
-local tabs = {"Interface", "Exit"}
-local currentTab = 1
-local interfaceItems = {"Windowmanger"}
-local wmChoices = {"Default", "Graphical"}
-local function ensureConfigFile()
-    if not fs.exists(CONFIG_PATH) then
-        local dir = fs.getDir(CONFIG_PATH)
-        if dir and not fs.exists(dir) then fs.makeDir(dir) end
-        local f = fs.open(CONFIG_PATH, "w")
-        if f then f.close() end
-    end
+-- ─── Colours ─────────────────────────────────────────────────────────────────
+local C_BG      = colors.black
+local C_FG      = colors.white
+local C_ACCENT  = colors.orange
+local C_SEL_BG  = colors.orange
+local C_SEL_FG  = colors.black
+local C_DIM     = colors.gray
+local C_ERR     = colors.red
+
+-- ─── Term helpers ─────────────────────────────────────────────────────────────
+local W, H = term.getSize()
+local function clrScr()
+  term.setBackgroundColor(C_BG); term.setTextColor(C_FG); term.clear()
 end
-local function readConfigLines()
-    ensureConfigFile()
-    local f = fs.open(CONFIG_PATH, "r")
-    if not f then return {} end
-    local lines = {}
-    while true do
-        local ln = f.readLine()
-        if not ln then break end
-        table.insert(lines, ln)
-    end
-    f.close()
-    return lines
+local function cur(x,y) term.setCursorPos(x,y) end
+local function clrLine(y)
+  cur(1,y); term.setBackgroundColor(C_BG); term.write(string.rep(" ",W))
 end
-local function writeConfigLines(lines)
-    local dir = fs.getDir(CONFIG_PATH)
-    if dir and not fs.exists(dir) then fs.makeDir(dir) end
-    local f = fs.open(CONFIG_PATH, "w")
-    if not f then return false end
-    for _, l in ipairs(lines) do f.writeLine(l) end
-    f.close(); return true
+local function center(y, text, fg, bg)
+  bg = bg or C_BG; fg = fg or C_FG
+  local x = math.max(1, math.floor((W - #text)/2)+1)
+  cur(x,y); term.setBackgroundColor(bg); term.setTextColor(fg); term.write(text)
+  term.setBackgroundColor(C_BG); term.setTextColor(C_FG)
 end
-local function getCurrentWMFromConfig()
-    local lines = readConfigLines()
-    for _, l in ipairs(lines) do local v = l:match("^Windowmanger:(%w+)"); if v then return v end end
-    for _, l in ipairs(lines) do local v = l:match("^Windowmanger(%w+)"); if v then return v end end
-    return "Default"
+local function header()
+  clrLine(1)
+  center(1, " NINX BIOS v2.0 ", C_SEL_FG, C_SEL_BG)
+  clrLine(2)
+  term.setTextColor(C_DIM); cur(2,2)
+  term.write("Arrows: navigate   Enter: select   Esc/Backspace: back")
+  term.setTextColor(C_FG)
 end
-local function replaceOrInsertWindowmanger(value)
-    if not value or type(value) ~= "string" then return false end
-    if not value:match("^%w+$") then return false end
-    local lines = readConfigLines(); local found = false
-    for i, l in ipairs(lines) do if l:match("^Windowmanger:") or l:match("^Windowmanger%w+$") then lines[i] = "Windowmanger:" .. value; found = true; break end end
-    if not found then table.insert(lines, "Windowmanger:" .. value) end
-    return writeConfigLines(lines)
+local function footer(msg)
+  clrLine(H); cur(2,H)
+  term.setTextColor(C_DIM); term.write(msg or ""); term.setTextColor(C_FG)
 end
-local stagedWM = getCurrentWMFromConfig()
-local unsaved = false
-local selInterface = 1
-local selWM = 1
-for i,v in ipairs(wmChoices) do if v:lower() == stagedWM:lower() then selWM = i; break end end
-local depth = 1
-local C_BG = colors.black
-local C_TEXT = colors.white
-local C_HEADER = colors.orange
-local C_HEADER_TEXT = colors.white
-local C_SEL_BG = colors.black
-local C_SEL_TEXT = colors.white
-local function clearLine(y) local w,_=term.getSize(); term.setCursorPos(1,y); term.write(string.rep(" ", w)); term.setCursorPos(1,y) end
-local function centerText(y, text) local w,_=term.getSize(); local x = math.floor((w-#text)/2)+1; if x<1 then x=1 end; term.setCursorPos(x,y); term.write(text) end
-local function drawTabs()
-    local w,_=term.getSize(); term.setCursorPos(1,1); term.setBackgroundColor(C_HEADER); term.setTextColor(C_HEADER_TEXT)
-    local curX=1; for _, name in ipairs(tabs) do local out=" ["..name.."] "; term.setCursorPos(curX,1); term.write(out); curX=curX+#out end
-    if curX<=w then term.setCursorPos(curX,1); term.write(string.rep(" ", w-curX+1)) end
-    term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT)
+local function drawBox(y1,x1,y2,x2,title)
+  for y=y1,y2 do
+    clrLine(y)
+    cur(x1,y); term.write("|")
+    cur(x2,y); term.write("|")
+  end
+  cur(x1,y1)
+  term.write("+" .. string.rep("-", x2-x1-1) .. "+")
+  cur(x1,y2)
+  term.write("+" .. string.rep("-", x2-x1-1) .. "+")
+  if title then
+    local tx = x1+2; cur(tx,y1)
+    term.setTextColor(C_ACCENT); term.write("[" .. title .. "]"); term.setTextColor(C_FG)
+  end
 end
-local function drawUI()
-    term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); term.clear()
-    drawTabs()
-    term.setBackgroundColor(C_HEADER); term.setTextColor(C_HEADER_TEXT); clearLine(2); centerText(2, "NINX BIOS CONFIG"); term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT)
-    clearLine(3); centerText(3, "Navigation: Arrow Keys / Enter. Back: Backspace / Esc / Delete")
-    if currentTab == 1 then
-        clearLine(4); term.setCursorPos(1,4); term.write(" Interface")
-        for i, item in ipairs(interfaceItems) do local y=6+(i-1); if depth==2 and i==selInterface then term.setBackgroundColor(C_SEL_BG); term.setTextColor(C_SEL_TEXT); clearLine(y); term.setCursorPos(3,y); term.write(">"..item) else term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); clearLine(y); term.setCursorPos(3,y); term.write("  "..item) end end
-        if depth == 3 then
-            local labY=8; term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); clearLine(labY); term.setCursorPos(12,labY); term.write("Windowmanger:")
-            for i,opt in ipairs(wmChoices) do local y=9+i; if i==selWM then term.setBackgroundColor(C_SEL_BG); term.setTextColor(C_SEL_TEXT); clearLine(y); term.setCursorPos(14,y); term.write("> "..opt) else term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); clearLine(y); term.setCursorPos(14,y); term.write("   "..opt) end end
-        end
-        term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); clearLine(14); term.setCursorPos(1,14); term.write("Current: "..getCurrentWMFromConfig()); clearLine(15); term.setCursorPos(1,15); term.write("Staged:  "..stagedWM..(unsaved and " (unsaved)" or ""))
+
+-- ─── Config I/O ───────────────────────────────────────────────────────────────
+local function ensureConfig()
+  local d = fs.getDir(CONFIG_PATH)
+  if d and not fs.exists(d) then fs.makeDir(d) end
+  if not fs.exists(CONFIG_PATH) then
+    local f=fs.open(CONFIG_PATH,"w"); if f then f.close() end
+  end
+end
+
+local function readConfig()
+  ensureConfig()
+  local cfg = {}
+  local f = fs.open(CONFIG_PATH,"r"); if not f then return cfg end
+  while true do
+    local l = f.readLine(); if not l then break end
+    local k,v = l:match("^([^:]+):(.+)$")
+    if k then cfg[k:match("^%s*(.-)%s*$")] = v:match("^%s*(.-)%s*$") end
+  end
+  f.close(); return cfg
+end
+
+local function writeConfig(cfg)
+  ensureConfig()
+  local f = fs.open(CONFIG_PATH,"w"); if not f then return false end
+  for k,v in pairs(cfg) do f.writeLine(k..":"..v) end
+  f.close(); return true
+end
+
+-- ─── Menus ────────────────────────────────────────────────────────────────────
+local cfg        = readConfig()
+local unsaved    = false
+local running    = true
+
+-- tab definitions: { id, label }
+local TABS = { {id="interface",label="Interface"}, {id="about",label="About"}, {id="exit",label="Exit"} }
+local tabIdx   = 1
+local selIdx   = 1   -- selection within a tab
+local depth    = 1   -- 1=tab row, 2=item, 3=sub-choice
+
+-- Interface items
+local WM_OPTIONS = {"Default","Graphical"}
+local function wmIndex()
+  local v = (cfg.Windowmanger or "Default")
+  for i,o in ipairs(WM_OPTIONS) do if o:lower()==v:lower() then return i end end
+  return 1
+end
+local stagedWM = WM_OPTIONS[wmIndex()]
+
+-- ─── Render ───────────────────────────────────────────────────────────────────
+local function renderInterface()
+  local startY = 4
+  local items  = { "Window Manager" }
+  for i,item in ipairs(items) do
+    local y = startY + (i-1)*2
+    clrLine(y)
+    cur(3,y)
+    if depth >= 2 and i == selIdx then
+      term.setBackgroundColor(C_SEL_BG); term.setTextColor(C_SEL_FG)
+      term.write(" > " .. item .. " ")
+      term.setBackgroundColor(C_BG); term.setTextColor(C_FG)
     else
-        clearLine(4); term.setCursorPos(1,4); term.write(" Exit")
-        clearLine(6); term.setCursorPos(3,6); if depth==2 then term.setBackgroundColor(C_SEL_BG); term.setTextColor(C_SEL_TEXT) else term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT) end
-        if unsaved then term.write(" Save changes and Exit ") else term.write(" Exit (no changes) ") end
+      term.setTextColor(C_ACCENT); term.write("  "); term.setTextColor(C_FG)
+      term.write(item)
     end
-    term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT)
+    -- show current value
+    clrLine(y+1)
+    cur(6,y+1)
+    term.setTextColor(C_DIM)
+    if item == "Window Manager" then
+      term.write("Current: " .. (cfg.Windowmanger or "Default"))
+      if unsaved and stagedWM ~= (cfg.Windowmanger or "Default") then
+        term.setTextColor(C_ACCENT); term.write("  Staged: " .. stagedWM)
+      end
+    end
+    term.setTextColor(C_FG)
+  end
+  if depth == 3 then
+    -- WM choice sub-menu
+    local boxY1, boxY2 = 4, 4+#WM_OPTIONS+1
+    drawBox(boxY1, W-20, boxY2, W-2, "Choose WM")
+    for i,opt in ipairs(WM_OPTIONS) do
+      local y = boxY1+i
+      cur(W-19,y)
+      if i == selIdx then
+        term.setBackgroundColor(C_SEL_BG); term.setTextColor(C_SEL_FG)
+        term.write(" > " .. opt .. string.rep(" ", 15-#opt))
+        term.setBackgroundColor(C_BG); term.setTextColor(C_FG)
+      else
+        term.write("   " .. opt)
+      end
+    end
+  end
 end
-local function cleanup() term.setBackgroundColor(colors.black); term.setTextColor(colors.white); term.clear(); term.setCursorPos(1,1) end
-local function tabLeft() if depth==1 then currentTab=currentTab-1; if currentTab<1 then currentTab=#tabs end end end
-local function tabRight() if depth==1 then currentTab=currentTab+1; if currentTab>#tabs then currentTab=1 end end end
-local function moveUp() if currentTab==1 then if depth==2 then if selInterface>1 then selInterface=selInterface-1 else depth=1 end elseif depth==3 then if selWM>1 then selWM=selWM-1 else depth=1 end else currentTab=currentTab-1; if currentTab<1 then currentTab=#tabs end end else if depth==2 then depth=1 else currentTab=currentTab-1; if currentTab<1 then currentTab=#tabs end end end end
-local function moveDown() if currentTab==1 then if depth==1 then depth=2; if selInterface<1 or selInterface>#interfaceItems then selInterface=1 end elseif depth==2 then selInterface=selInterface+1; if selInterface>#interfaceItems then selInterface=1 end elseif depth==3 then selWM=selWM+1; if selWM>#wmChoices then selWM=1 end end else if depth==1 then depth=2 end end end
-local function doEnter() if currentTab==1 then if depth==1 then depth=2; if selInterface<1 or selInterface>#interfaceItems then selInterface=1 end elseif depth==2 then if interfaceItems[selInterface]=="Windowmanger" then depth=3; for i,v in ipairs(wmChoices) do if v:lower()==stagedWM:lower() then selWM=i; break end end; if selWM<1 then selWM=1 end end elseif depth==3 then stagedWM=wmChoices[selWM]; unsaved=true; term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); term.clear(); centerText(8, "Staged Windowmanger: "..stagedWM); centerText(10, "Go to Exit and press Enter to save & quit."); sleep(0.9); depth=2 end else if unsaved then replaceOrInsertWindowmanger(stagedWM) end; cleanup(); if unsaved then print("Saved Windowmanger:"..stagedWM) else print("Exited BIOS (no changes).") end; return true end return false end
-local function doBack() if depth==3 then depth=2 elseif depth==2 then depth=1 else cleanup(); print("Exited BIOS without saving staged changes."); return true end return false end
-local REPEAT_INITIAL = 0.30; local REPEAT_RATE = 0.06; local repeatKey=nil; local repeatTimerId=nil
-local function startRepeat(k) if repeatTimerId then pcall(os.cancelTimer, repeatTimerId); repeatTimerId=nil end; repeatKey=k; repeatTimerId=os.startTimer(REPEAT_INITIAL) end
-local function stopRepeat(k) if repeatKey and k==repeatKey then if repeatTimerId then pcall(os.cancelTimer, repeatTimerId); repeatTimerId=nil end; repeatKey=nil end end
-local function processKey(k) if k==keys.left then tabLeft() elseif k==keys.right then tabRight() elseif k==keys.up then moveUp() elseif k==keys.down then moveDown() elseif k==keys.enter then local done=doEnter(); if done then return "exit" end elseif k==keys.backspace or k==keys.delete or k==keys.escape then local done=doBack(); if done then return "exit" end end return nil end
-term.setBackgroundColor(C_BG); term.setTextColor(C_TEXT); term.clear(); drawUI()
-local running=true; while running do local ev={os.pullEvent()}; local evName=ev[1]; if evName=="key" then local k=ev[2]; local res=processKey(k); if res=="exit" then running=false break end; drawUI(); if k==keys.left or k==keys.right or k==keys.up or k==keys.down then startRepeat(k) end elseif evName=="key_up" then local k_up=ev[2]; stopRepeat(k_up) elseif evName=="timer" then local tId=ev[2]; if repeatKey and repeatTimerId and tId==repeatTimerId then local res=processKey(repeatKey); if res=="exit" then running=false break end; drawUI(); if repeatTimerId then pcall(os.cancelTimer, repeatTimerId) end; repeatTimerId=os.startTimer(REPEAT_RATE) end end end
-cleanup()
+
+local function renderAbout()
+  local y = 4
+  center(y,   "Ninx Operating System",  C_ACCENT)
+  center(y+1, "BIOS Configuration Utility v2.0", C_DIM)
+  center(y+3, "Boot by pressing B during kernel startup", C_FG)
+  center(y+4, "Settings are saved to: " .. CONFIG_PATH, C_DIM)
+end
+
+local function renderExit()
+  local y = 5
+  if unsaved then
+    center(y,   "You have unsaved changes!", C_ERR)
+    center(y+2, "> Save & Exit <", C_SEL_FG, C_SEL_BG)
+    center(y+3, "  Discard & Exit", depth>=2 and C_ACCENT or C_FG)
+  else
+    center(y+1, "> Exit BIOS <", C_SEL_FG, C_SEL_BG)
+    center(y+2, "No changes to save.", C_DIM)
+  end
+end
+
+local function renderTabs()
+  clrLine(3)
+  local x = 2
+  for i,tab in ipairs(TABS) do
+    cur(x,3)
+    if i == tabIdx then
+      term.setBackgroundColor(C_ACCENT); term.setTextColor(C_SEL_FG)
+      term.write(" [" .. tab.label .. "] ")
+      term.setBackgroundColor(C_BG); term.setTextColor(C_FG)
+    else
+      term.setTextColor(C_DIM); term.write("  " .. tab.label .. "  "); term.setTextColor(C_FG)
+    end
+    x = x + #tab.label + 5
+  end
+end
+
+local function redraw()
+  clrScr()
+  header()
+  renderTabs()
+  clrLine(H-1)
+  local tab = TABS[tabIdx].id
+  if tab == "interface" then
+    renderInterface()
+    footer("Enter=select  Arrows=navigate  Esc=back")
+  elseif tab == "about" then
+    renderAbout()
+    footer("Press Esc or Tab to switch tabs")
+  elseif tab == "exit" then
+    renderExit()
+    footer("Enter=confirm  Esc=cancel")
+  end
+end
+
+-- ─── Input handling ───────────────────────────────────────────────────────────
+local function doSave()
+  cfg.Windowmanger = stagedWM
+  writeConfig(cfg)
+  unsaved = false
+end
+
+local function handleExit()
+  local tab = TABS[tabIdx].id
+  if tab == "exit" then
+    if unsaved then
+      -- selIdx 1=Save&Exit, 2=Discard&Exit
+      if selIdx == 1 or selIdx == 0 then doSave() end
+    end
+    running = false
+    return
+  end
+  if depth == 3 then depth = 2; return end
+  if depth == 2 then depth = 1; selIdx = 1; return end
+  if depth == 1 then tabIdx = #TABS; redraw(); return end  -- jump to exit tab
+end
+
+local function handleEnter()
+  local tab = TABS[tabIdx].id
+  if depth == 1 then
+    depth = 2; selIdx = 1; return
+  end
+  if tab == "interface" then
+    if depth == 2 then
+      depth = 3
+      -- for WM, reset selIdx to current staged
+      for i,o in ipairs(WM_OPTIONS) do if o==stagedWM then selIdx=i break end end
+    elseif depth == 3 then
+      -- confirm WM selection
+      stagedWM = WM_OPTIONS[selIdx]
+      if stagedWM ~= (cfg.Windowmanger or "Default") then unsaved = true end
+      depth = 2; selIdx = 1
+    end
+  elseif tab == "exit" then
+    if unsaved then
+      if selIdx == 1 then doSave() end
+    end
+    running = false
+  end
+end
+
+local function handleUp()
+  if depth == 1 then
+    tabIdx = tabIdx - 1; if tabIdx < 1 then tabIdx = #TABS end
+  elseif depth == 2 then
+    local tab = TABS[tabIdx].id
+    if tab == "interface" then
+      selIdx = selIdx - 1; if selIdx < 1 then selIdx = 1 end
+    elseif tab == "exit" and unsaved then
+      selIdx = selIdx - 1; if selIdx < 1 then selIdx = 1 end
+    end
+  elseif depth == 3 then
+    selIdx = selIdx - 1; if selIdx < 1 then selIdx = #WM_OPTIONS end
+  end
+end
+
+local function handleDown()
+  if depth == 1 then
+    tabIdx = tabIdx + 1; if tabIdx > #TABS then tabIdx = 1 end
+  elseif depth == 2 then
+    local tab = TABS[tabIdx].id
+    if tab == "interface" then
+      selIdx = selIdx + 1; if selIdx > 1 then selIdx = 1 end
+    elseif tab == "exit" and unsaved then
+      selIdx = selIdx + 1; if selIdx > 2 then selIdx = 2 end
+    end
+  elseif depth == 3 then
+    selIdx = selIdx + 1; if selIdx > #WM_OPTIONS then selIdx = 1 end
+  end
+end
+
+local function handleLeft()
+  if depth == 1 then tabIdx=tabIdx-1; if tabIdx<1 then tabIdx=#TABS end end
+end
+local function handleRight()
+  if depth == 1 then tabIdx=tabIdx+1; if tabIdx>#TABS then tabIdx=1 end end
+end
+
+-- ─── Main loop ────────────────────────────────────────────────────────────────
+redraw()
+
+while running do
+  local ev, p = os.pullEvent("key")
+  if     p == keys.up       then handleUp()
+  elseif p == keys.down     then handleDown()
+  elseif p == keys.left     then handleLeft()
+  elseif p == keys.right    then handleRight()
+  elseif p == keys.enter    then handleEnter()
+  elseif p == keys.backspace or p == keys.escape or p == keys["delete"] then handleExit()
+  end
+  if running then redraw() end
+end
+
+-- Clean exit — restore terminal
+term.setBackgroundColor(colors.black); term.setTextColor(colors.white); term.clear(); term.setCursorPos(1,1)
+if unsaved then
+  term.setTextColor(colors.orange); print("BIOS: exited without saving staged changes.")
+  term.setTextColor(colors.white)
+end

@@ -1,668 +1,415 @@
-
-
-
-
-
-
+-- shell.lua  Ninx Shell v2.0
+-- Linux-style prompt, folder-based packages, user context, fs permission sandbox
 
 local fs, term, shell, textutils = fs, term, shell, textutils
-_G.shell = shell
-_G.fs = fs
-_G.term = term
-_G.textutils = textutils
-_G.colors = colors
-local PACKAGES_DIR = "/ninx/packages"
-local GUI_PACKAGES_DIR = PACKAGES_DIR .. "/gui"
-local BIN_DIR = "/ninx/.sys/bin"       
-local GBIN_DIR = "/ninx/.sys/gbin"     
-local COMMANDS_FILE = "/ninx/commands.lua"
-local LOG_DIR = "/ninx/logs"
-local unpack = table.unpack or unpack
+_G.shell = shell; _G.fs = fs; _G.term = term; _G.textutils = textutils; _G.colors = colors
 
-
-local DEBUG_RUNMODE = true
-local initArgs = { ... }
+local PKG_DIR   = "/ninx/packages"
+local BIN_DIR   = "/ninx/.sys/bin"
+local LOG_DIR   = "/ninx/logs"
+local unpack    = table.unpack or unpack
 
 local function safeSetCursorBlink(v)
-  if type(term) == "table" and type(term.setCursorBlink) == "function" then
+  if type(term)=="table" and type(term.setCursorBlink)=="function" then
     pcall(term.setCursorBlink, v)
   end
 end
 
-if not fs.exists(PACKAGES_DIR) then fs.makeDir(PACKAGES_DIR) end
-if not fs.exists(LOG_DIR) then fs.makeDir(LOG_DIR) end
+-- ─── Ensure dirs ──────────────────────────────────────────────────────────────
+if not fs.exists(PKG_DIR) then fs.makeDir(PKG_DIR) end
+if not fs.exists(LOG_DIR)  then fs.makeDir(LOG_DIR) end
 
-if not fs.exists(COMMANDS_FILE) then
-  local ok, h = pcall(function() return fs.open(COMMANDS_FILE, "w") end)
-  if ok and h then
-    h.write([[
+-- ─── User/session helpers ─────────────────────────────────────────────────────
+local function currentUser() return _G.NINX_USER or "guest" end
+local function isRoot()      return _G.NINX_ROOT == true end
+local function currentCwd()  return _G.NINX_CWD or "/" end
+local function setCwd(p)     _G.NINX_CWD = p end
 
-local commands = {}
-commands.about = function(args)
-  term.setTextColor(colors.white)
-  io.write("")
-  term.setTextColor(colors.orange)
-  io.write("Ninx")
-  term.setTextColor(colors.white)
-  print(" Shell 1.0")
-end
-return commands
-]])
-    h.close()
+-- ─── Prompt string ────────────────────────────────────────────────────────────
+local function makePrompt()
+  local user = currentUser()
+  local cwd  = currentCwd()
+  local home = "/ninx/usr/" .. user .. "/home"
+  -- Shorten home dir to ~
+  if cwd == home then cwd = "~"
+  elseif cwd:sub(1, #home) == home then cwd = "~" .. cwd:sub(#home+1)
   end
+  local suffix = isRoot() and "#" or "$"
+  return user .. "@ninx:" .. cwd .. suffix .. " "
 end
 
-local completion = nil
-do
-  local ok, mod = pcall(function() return dofile("/ninx/.sys/utils/autofill.lua") end)
-  if ok and type(mod) == "table" and type(mod.makeCompletion) == "function" then
-    completion = mod.makeCompletion(PACKAGES_DIR, COMMANDS_FILE)
-  else
-    completion = function() return {} end
-    term.setTextColor(colors.red)
-    print("Warning: autofill module failed to load; completions disabled.")
-    term.setTextColor(colors.white)
-  end
-end
+-- ─── Permission sandbox for packages ─────────────────────────────────────────
+local function runWithSandbox(path, args)
+  local user = currentUser()
+  local home = "/ninx/usr/" .. user .. "/home"
+  local usingSudo = _G.NINX_SUDO or isRoot()
 
-local function splitWords(s)
-  local t = {}
-  for w in s:gmatch("%S+") do table.insert(t, w) end
-  return t
-end
-local function sanitizeName(name)
-  if not name or type(name) ~= "string" then return nil end
-  if name:find("[/\\]") or name:find("%.%.") then return nil end
-  if name:sub(-4) == ".lua" then name = name:sub(1, -5) end
-  if name == "" then return nil end
-  return name
-end
-local function ensureSlash(p)
-  if type(p) ~= "string" then return p end
-  if p:sub(-1) ~= "/" then return p .. "/" end
-  return p
-end
-local function isPathInDir(path, dir)
-  if type(path) ~= "string" or type(dir) ~= "string" then return false end
-  local nd = ensureSlash(dir)
-  local np = path
-  if np:sub(-1) == "/" then np = np:sub(1, -2) end
-  return np:sub(1, #nd) == nd
-end
+  -- Load users lib lazily
+  local U
+  pcall(function() U = dofile("/ninx/.sys/users.lua") end)
 
-local function runOnTop(path, args)
-  if DEBUG_RUNMODE then
-    term.setTextColor(colors.orange)
-    print("Starting (ON-TOP): " .. tostring(path))
-    term.setTextColor(colors.white)
-  end
-  local ok, err = pcall(function()
-    if args and #args > 0 then shell.run(path, unpack(args)) else shell.run(path) end
-  end)
-  if ok then
-    if DEBUG_RUNMODE then
-      term.setTextColor(colors.orange)
-      print("Finished (ON-TOP): " .. tostring(path))
-      term.setTextColor(colors.white)
+  local function checkWrite(dest)
+    if isRoot() then return true end
+    if not U then return true end
+    local ok = U.mayWrite(dest, usingSudo)
+    if not ok then
+      error("No Permission: " .. tostring(dest), 2)
     end
-  else
-    term.setTextColor(colors.red)
-    print("Error while running (ON-TOP): " .. tostring(err))
-    term.setTextColor(colors.white)
+    return true
   end
-  
-  term.setBackgroundColor(colors.black)
-  term.clear()
-  term.setCursorPos(1,1)
-  term.setTextColor(colors.white)
-  safeSetCursorBlink(true)
-  return ok, err
-end
 
-local function runNormally(path, args)
-  if DEBUG_RUNMODE then
-    term.setTextColor(colors.green)
-    print("Starting (NORMAL): " .. tostring(path))
-    term.setTextColor(colors.white)
+  -- Build a sandboxed environment
+  local env = setmetatable({}, {__index = _G})
+  local origFs = {}
+  for k,v in pairs(fs) do origFs[k]=v end
+
+  env.fs = setmetatable({}, {__index = origFs})
+  env.fs.open   = function(p, mode, ...)
+    if mode and mode:sub(1,1)=="w" then checkWrite(p) end
+    return origFs.open(p, mode, ...)
   end
-  local ok, err = pcall(function()
-    if args and #args > 0 then shell.run(path, unpack(args)) else shell.run(path) end
-  end)
-  if ok then
-    if DEBUG_RUNMODE then
-      term.setTextColor(colors.green)
-      print("Finished (NORMAL): " .. tostring(path))
-      term.setTextColor(colors.white)
+  env.fs.delete = function(p) checkWrite(p); return origFs.delete(p) end
+  env.fs.move   = function(src, dst) checkWrite(dst); return origFs.move(src,dst) end
+  env.fs.copy   = function(src, dst) checkWrite(dst); return origFs.copy(src,dst) end
+  env.fs.makeDir = function(p) checkWrite(p); return origFs.makeDir(p) end
+
+  local fn, err = loadfile(path)
+  if not fn then
+    term.setTextColor(colors.red); print("Error loading " .. path .. ": " .. tostring(err)); term.setTextColor(colors.white)
+    return false
+  end
+  setfenv(fn, env)
+
+  local ok2, err2 = pcall(fn, unpack(args or {}))
+  if not ok2 then
+    term.setTextColor(colors.red)
+    if tostring(err2):find("No Permission") then
+      print("No Permission: " .. tostring(err2))
+    else
+      print("Error: " .. tostring(err2))
     end
-  else
-    term.setTextColor(colors.red)
-    print("Error while running (NORMAL): " .. tostring(err))
     term.setTextColor(colors.white)
+    return false
   end
-  
-  term.setBackgroundColor(colors.black)
-  term.clear()
-  term.setCursorPos(1,1)
-  term.setTextColor(colors.white)
-  safeSetCursorBlink(true)
-  return ok, err
+  return true
 end
 
-
-
-local function runBinSilent(path, args)
+-- ─── Run helpers ──────────────────────────────────────────────────────────────
+local function runBin(path, args)
   local ok, err = pcall(function()
-    if args and #args > 0 then shell.run(path, unpack(args)) else shell.run(path) end
+    if args and #args>0 then shell.run(path, unpack(args)) else shell.run(path) end
   end)
   if not ok then
-    term.setTextColor(colors.red)
-    print("Error in bin:", tostring(err))
-    term.setTextColor(colors.white)
+    term.setTextColor(colors.red); print("Error: " .. tostring(err)); term.setTextColor(colors.white)
   end
-  
-  safeSetCursorBlink(true)
-  return ok, err
-end
-local function candidates(dir, name)
-  return {
-    dir .. "/" .. name .. ".lua",
-    dir .. "/" .. name:lower() .. ".lua",
-    dir .. "/" .. name:upper() .. ".lua",
-  }
+  return ok
 end
 
-
-
-local function tryRunPackageByName(name, args)
-  if not name then return false end
-  
-  if fs.exists(GUI_PACKAGES_DIR) then
-    for _, path in ipairs(candidates(GUI_PACKAGES_DIR, name)) do
-      if fs.exists(path) and isPathInDir(path, GUI_PACKAGES_DIR) then
-        runOnTop(path, args)
-        return true
-      end
-    end
+-- Run a package (folder-based: main.lua) with sandbox
+local function tryRunPackage(name, args)
+  -- Folder-based package
+  local dir  = PKG_DIR .. "/" .. name
+  local main = dir .. "/main.lua"
+  if fs.exists(main) then
+    runWithSandbox(main, args)
+    return true
   end
-  
-  if fs.exists(PACKAGES_DIR) then
-    for _, path in ipairs(candidates(PACKAGES_DIR, name)) do
-      if fs.exists(path) and not isPathInDir(path, GUI_PACKAGES_DIR) then
-        runNormally(path, args)
-        return true
-      end
-    end
+  -- Legacy: flat .lua in packages dir
+  local flat = PKG_DIR .. "/" .. name .. ".lua"
+  if fs.exists(flat) then
+    runWithSandbox(flat, args)
+    return true
   end
   return false
 end
-local function listPackages()
-  term.setTextColor(colors.white)
-  if not fs.exists(PACKAGES_DIR) then print("(no packages found in " .. PACKAGES_DIR .. ")") return end
-  for _,f in ipairs(fs.list(PACKAGES_DIR)) do
-    if f:sub(-4) == ".lua" then print(f:sub(1, -5)) end
-  end
+
+-- ─── Builtins ─────────────────────────────────────────────────────────────────
+local function splitWords(s)
+  local t={}; for w in s:gmatch("%S+") do t[#t+1]=w end; return t
 end
+
 local function printHelp()
-  term.setTextColor(colors.white)
-  io.write("")
-  term.setTextColor(colors.orange)
-  io.write("Ninx")
-  term.setTextColor(colors.white)
-  print(" Shell 1.0 - help")
-  print("Commands: help, list, exit, quit, clear")
-  local ok, commands = pcall(function() return dofile(COMMANDS_FILE) end)
-  local cmds = {}
-  if ok and type(commands) == "table" then
-    for name,fn in pairs(commands) do
-      if type(name) == "string" and type(fn) == "function" then table.insert(cmds, name) end
-    end
-  end
-  if #cmds > 0 then
-    table.sort(cmds, function(a,b) return a:lower() < b:lower() end)
-    io.write("")
-    for i,name in ipairs(cmds) do
-      io.write(name)
-      if i < #cmds then io.write(", ") end
-    end
-    print()
-  end
-  print(" To run a package, type its name.")
+  term.setTextColor(colors.orange); io.write("Ninx"); term.setTextColor(colors.white)
+  print(" Shell v2.0")
+  print("Builtins: help, clear, exit, cd <dir>, ls, pwd, ver")
+  print("Commands in /ninx/.sys/bin: nam, usr, sudo, su, rootpwd, ...")
+  print("Packages in /ninx/packages/<name>/main.lua — type the name to run")
 end
 
-local function repl()
-  term.setTextColor(colors.white)
-  io.write("Welcome to ")
-  term.setTextColor(colors.orange)
-  io.write("Ninx")
-  term.setTextColor(colors.white)
-  print(" Shell 1.0 - type 'help' for more info.")
-  
-  safeSetCursorBlink(true)
-  local function readWithIdle(idleSeconds, completionFn)
-    local buf = ""
-    local prevLen = 0
-    local baseX, baseY = term.getCursorPos()
-    local currentTimer = os.startTimer(idleSeconds)
-    local keysTbl = keys
-    local prevHintLen = 0
-    local function redraw()
-      local w, h = term.getSize()
-      term.setBackgroundColor(colors.black)
-      term.setTextColor(colors.white)
-      local hint = ""
-      if completionFn then
-        local comp = completionFn(buf) or {}
-        if #comp == 1 and type(comp[1]) == "string" and not comp[2] then
-          hint = comp[1]
-        elseif #comp > 1 then
-          local token = buf:match("(%S+)$") or ""
-          local function common_prefix(a,b)
-            local i = 1
-            while i <= #a and i <= #b and a:sub(i,i):lower() == b:sub(i,i):lower() do i = i + 1 end
-            return a:sub(1, i-1)
-          end
-          local common = comp[1] or ""
-          for i=2,#comp do common = common_prefix(common, comp[i] or "") end
-          if #common > #token then hint = common:sub(#token + 1) end
-        end
-      end
-      local prevDrawnLen = prevLen + prevHintLen
-      if prevDrawnLen > 0 then
-        local prevTotal = (baseX - 1) + prevDrawnLen
-        local prevLines = math.floor((prevTotal + w - 1) / w)
-        term.setBackgroundColor(colors.black)
-        for i = 0, prevLines - 1 do
-          local y = baseY + i
-          local startCol = (i == 0) and baseX or 1
-          local clearLen = w - startCol + 1
-          term.setCursorPos(startCol, y)
-          term.write(string.rep(" ", clearLen))
-        end
-      end
-      local remaining = #buf
-      local offset = 1
-      local lineIndex = 0
-      while remaining > 0 do
-        local startCol = (lineIndex == 0) and baseX or 1
-        local spaceLeft = w - startCol + 1
-        local take = math.min(spaceLeft, remaining)
-        term.setCursorPos(startCol, baseY + lineIndex)
-        term.setBackgroundColor(colors.black)
-        term.setTextColor(colors.white)
-        term.write(string.sub(buf, offset, offset + take - 1))
-        remaining = remaining - take
-        offset = offset + take
-        lineIndex = lineIndex + 1
-      end
-      if hint ~= "" then
-        local totalLenSoFar = (baseX - 1) + #buf
-        local hintRem = #hint
-        local hintOff = 1
-        local lineIdx = math.floor(totalLenSoFar / w)
-        local startX = (totalLenSoFar % w) + 1
-        while hintRem > 0 do
-          local startCol = (lineIdx == 0) and startX or 1
-          local spaceLeft = w - startCol + 1
-          local take = math.min(spaceLeft, hintRem)
-          term.setCursorPos(startCol, baseY + lineIdx)
-          term.setBackgroundColor(colors.lightGray)
-          term.setTextColor(colors.black)
-          term.write(string.sub(hint, hintOff, hintOff + take - 1))
-          term.setBackgroundColor(colors.black)
-          term.setTextColor(colors.white)
-          hintRem = hintRem - take
-          hintOff = hintOff + take
-          lineIdx = lineIdx + 1
-        end
-      end
-      local totalLen = (baseX - 1) + #buf
-      local cursorY = baseY + math.floor(totalLen / w)
-      local cursorX = (totalLen % w) + 1
-      if cursorY > h then
-        local scrollAmount = cursorY - h
-        for i = 1, scrollAmount do term.scroll(1) end
-        baseY = baseY - scrollAmount
-        cursorY = h
-      end
-      term.setCursorPos(cursorX, cursorY)
-      
-      safeSetCursorBlink(true)
-      prevHintLen = #hint
-      prevLen = #buf
-    end
-    redraw()
-    while true do
-      local ev = { os.pullEvent() }
-      if ev[1] == "char" then
-        buf = buf .. tostring(ev[2] or "")
-        redraw()
-        currentTimer = os.startTimer(idleSeconds)
-      elseif ev[1] == "key" then
-        local k = ev[2]
-        if k == keys.enter then
-          local termWidth = select(1, term.getSize())
-          local totalLen = baseX - 1 + #buf
-          local cursorY = baseY + math.floor(totalLen / termWidth)
-          local cursorX = (totalLen % termWidth) + 1
-          term.setCursorPos(cursorX, cursorY)
-          safeSetCursorBlink(true)
-          print()
-          return buf
-        elseif k == keys.backspace then
-          if #buf > 0 then
-            buf = buf:sub(1, -2)
-            redraw()
-          end
-          currentTimer = os.startTimer(idleSeconds)
-        elseif k == keys.tab then
-          if completionFn then
-            local comp = completionFn(buf) or {}
-            if #comp == 1 and type(comp[1]) == "string" then
-              buf = buf .. comp[1]
-              redraw()
-            else
-              local token = buf:match("(%S+)$") or ""
-              local function common_prefix(a,b)
-                local i=1; while i<=#a and i<=#b and a:sub(i,i):lower()==b:sub(i,i):lower() do i=i+1 end; return a:sub(1,i-1) end
-              local common = comp[1] or ""
-              for i=2,#comp do common = common_prefix(common, comp[i] or "") end
-              if common ~= "" and #common > #token then
-                buf = buf .. common:sub(#token+1)
-                redraw()
-              elseif #comp > 0 then
-                print()
-                term.setTextColor(colors.white)
-                local joined = table.concat(comp, ", ")
-                print(joined)
-                term.setTextColor(colors.orange)
-                local computerName = os.getComputerLabel() or ("Computer" .. os.getComputerID())
-                term.write("[" .. computerName .. "] > ")
-                baseX, baseY = term.getCursorPos()
-                redraw()
-              end
-            end
-          end
-          currentTimer = os.startTimer(idleSeconds)
-        elseif k == keys.left or k == keys.right or k == keys.up or k == keys.down then
-          currentTimer = os.startTimer(idleSeconds)
-        elseif k == keys.delete then
-          if #buf > 0 then
-            buf = buf:sub(1, -2)
-            redraw()
-          end
-          currentTimer = os.startTimer(idleSeconds)
-        else
-          currentTimer = os.startTimer(idleSeconds)
-        end
-      elseif ev[1] == "paste" then
-        if ev[2] and type(ev[2]) == "string" then
-          buf = buf .. ev[2]
-          redraw()
-        end
-        currentTimer = os.startTimer(idleSeconds)
-      elseif ev[1] == "mouse_click" or ev[1] == "mouse_up" or ev[1] == "mouse_drag" then
-        currentTimer = os.startTimer(idleSeconds)
-      elseif ev[1] == "timer" then
-        if ev[2] == currentTimer then
-          term.setTextColor(colors.white)
-          local scPath = "/ninx/.sys/desktop/screensaver.lua"
-          if fs.exists(scPath) then
-            local okS, errS = pcall(function() shell.run(scPath) end)
-            if not okS then
-              term.setTextColor(colors.red)
-              print("Error running screensaver:", tostring(errS))
-              term.setTextColor(colors.white)
-            end
-          end
-          term.setTextColor(colors.orange)
-          local computerName = os.getComputerLabel() or ("Computer" .. os.getComputerID())
-          term.write("[" .. computerName .. "] > ")
-          baseX, baseY = term.getCursorPos()
-          redraw()
-          currentTimer = os.startTimer(idleSeconds)
-        end
-      elseif ev[1] == "terminate" then
-        error("Terminated")
-      else
-        currentTimer = os.startTimer(idleSeconds)
-      end
-    end
+local function doCD(args)
+  local user = currentUser()
+  local home = "/ninx/usr/" .. user .. "/home"
+  local target = args[1]
+  if not target or target == "~" then target = home end
+  if target:sub(1,1) ~= "/" then
+    target = (currentCwd():gsub("/$","")) .. "/" .. target
   end
+  -- Normalise ..
+  local parts = {}
+  for p in target:gmatch("[^/]+") do
+    if p == ".." then table.remove(parts)
+    elseif p ~= "." then table.insert(parts, p) end
+  end
+  local resolved = "/" .. table.concat(parts, "/")
+  if not fs.exists(resolved) then
+    term.setTextColor(colors.red); print("cd: " .. resolved .. ": No such directory"); term.setTextColor(colors.white)
+    return
+  end
+  if not fs.isDir(resolved) then
+    term.setTextColor(colors.red); print("cd: " .. resolved .. ": Not a directory"); term.setTextColor(colors.white)
+    return
+  end
+  setCwd(resolved)
+end
+
+local function doLS(args)
+  local dir = args[1]
+  if not dir then dir = currentCwd() end
+  if dir:sub(1,1) ~= "/" then dir = currentCwd() .. "/" .. dir end
+  if not fs.exists(dir) then
+    term.setTextColor(colors.red); print("ls: cannot access '" .. dir .. "': No such file or directory")
+    term.setTextColor(colors.white); return
+  end
+  local list = fs.list(dir)
+  table.sort(list)
+  local W = select(1, term.getSize())
+  local maxLen = 0
+  for _, f in ipairs(list) do if #f > maxLen then maxLen = #f end end
+  local cols = math.max(1, math.floor(W / (maxLen + 2)))
+  local i = 0
+  for _, f in ipairs(list) do
+    local full = dir:gsub("/$","") .. "/" .. f
+    if fs.isDir(full) then term.setTextColor(colors.orange)
+    else term.setTextColor(colors.white) end
+    io.write(f .. string.rep(" ", maxLen + 2 - #f))
+    i = i + 1
+    if i % cols == 0 then print() end
+  end
+  if i % cols ~= 0 then print() end
+  term.setTextColor(colors.white)
+end
+
+-- ─── Input: readline with autocomplete ────────────────────────────────────────
+local completion = nil
+do
+  local ok, mod = pcall(dofile, "/ninx/.sys/utils/autofill.lua")
+  if ok and type(mod)=="table" and type(mod.makeCompletion)=="function" then
+    completion = mod.makeCompletion(PKG_DIR, BIN_DIR, currentCwd)
+  else
+    completion = function() return {} end
+  end
+end
+
+local function readLine(promptStr, completionFn)
+  io.write(promptStr)
+  local buf = ""
+  local baseX, baseY = term.getCursorPos()
+  local prevHintLen = 0
+  local W,H = term.getSize()
+
+  local function redraw()
+    local hint = ""
+    if completionFn then
+      local comp = completionFn(buf, currentCwd()) or {}
+      if #comp == 1 then hint = comp[1]
+      elseif #comp > 1 then
+        local tok = buf:match("(%S+)%s*$") or ""
+        local common = comp[1] or ""
+        for i=2,#comp do
+          local j=1; while j<=#common and j<=#comp[i] and common:sub(j,j)==comp[i]:sub(j,j) do j=j+1 end
+          common = common:sub(1,j-1)
+        end
+        if #common > #tok then hint = common:sub(#tok+1) end
+      end
+    end
+    -- Clear previous
+    local prevTotal = (baseX-1) + #buf + prevHintLen
+    local prevLines = math.ceil(prevTotal / W)
+    for i=0, prevLines-1 do
+      local y=baseY+i; local sc=(i==0) and baseX or 1
+      term.setCursorPos(sc,y); term.setBackgroundColor(colors.black)
+      term.write(string.rep(" ", W-sc+1))
+    end
+    -- Draw input
+    local rem = #buf; local off = 1; local li = 0
+    while rem > 0 do
+      local sc = (li==0) and baseX or 1
+      local sp = W-sc+1; local take = math.min(sp,rem)
+      term.setCursorPos(sc, baseY+li)
+      term.setBackgroundColor(colors.black); term.setTextColor(colors.white)
+      term.write(buf:sub(off,off+take-1))
+      rem=rem-take; off=off+take; li=li+1
+    end
+    -- Draw hint
+    if hint ~= "" then
+      local tl = (baseX-1)+#buf; local hi_rem = #hint; local hi_off = 1
+      local hi_line = math.floor(tl/W); local hi_x = (tl%W)+1
+      while hi_rem > 0 do
+        local sc=(hi_line==0) and hi_x or 1
+        local sp=W-sc+1; local take=math.min(sp,hi_rem)
+        term.setCursorPos(sc, baseY+hi_line)
+        term.setBackgroundColor(colors.gray); term.setTextColor(colors.black)
+        term.write(hint:sub(hi_off,hi_off+take-1))
+        term.setBackgroundColor(colors.black); term.setTextColor(colors.white)
+        hi_rem=hi_rem-take; hi_off=hi_off+take; hi_line=hi_line+1
+      end
+    end
+    -- Cursor position
+    local tl = (baseX-1)+#buf
+    local curY = baseY + math.floor(tl/W)
+    local curX = (tl%W)+1
+    if curY > H then
+      local scroll = curY-H
+      for _=1,scroll do term.scroll(1) end
+      baseY=baseY-scroll; curY=H
+    end
+    term.setCursorPos(curX, curY)
+    safeSetCursorBlink(true)
+    prevHintLen = #hint
+  end
+
+  redraw()
   while true do
-    term.setTextColor(colors.orange)
-    local computerName = os.getComputerLabel() or ("Computer" .. os.getComputerID())
-    term.write("[" .. computerName .. "] > ")
-    term.setTextColor(colors.orange)
-    
-    safeSetCursorBlink(true)
-    local ok, line = pcall(function() return readWithIdle(60, completion) end)
-    term.setTextColor(colors.white)
-    if not ok then print() break end
-    if not line then print() break end
-    line = line:gsub("^%s+", ""):gsub("%s+$", "")
-    if line ~= "" then
-      local parts = splitWords(line)
-      local cmd = parts[1]
-      local args = {}
-      for i=2,#parts do args[#args+1] = parts[i] end
-      if cmd == "help" then
-        printHelp()
-      elseif cmd == "list" then
-        listPackages()
-      elseif cmd == "exit" or cmd == "quit" then
-        print("Bye.")
-        break
-      elseif cmd == "clear" then
-        term.clear()
-        term.setCursorPos(1,1)
-      else
-        local commands = {}
-        local okc, res = pcall(function() return dofile(COMMANDS_FILE) end)
-        if okc and type(res) == "table" then commands = res end
-        local matched = false
-        local lowerCmd = cmd:lower()
-        for name,fn in pairs(commands) do
-          if type(name) == "string" and type(fn) == "function" and name:lower() == lowerCmd then
-            local ok2, err = pcall(function() fn(args) end)
-            if not ok2 then
-              term.setTextColor(colors.red)
-              print("Command error:", err)
-              term.setTextColor(colors.white)
+    local ev = {os.pullEvent()}
+    if ev[1]=="char" then
+      buf = buf .. ev[2]; redraw()
+    elseif ev[1]=="key" then
+      local k=ev[2]
+      if k==keys.enter then
+        local tl=(baseX-1)+#buf
+        local cy=baseY+math.floor(tl/W); local cx=(tl%W)+1
+        term.setCursorPos(cx,cy); print(); return buf
+      elseif k==keys.backspace then
+        if #buf>0 then buf=buf:sub(1,-2); redraw() end
+      elseif k==keys.tab then
+        if completionFn then
+          local comp = completionFn(buf, currentCwd()) or {}
+          if #comp==1 then
+            buf=buf..comp[1]; redraw()
+          elseif #comp>0 then
+            local tok=buf:match("(%S+)%s*$") or ""
+            local common=comp[1] or ""
+            for i=2,#comp do
+              local j=1; while j<=#common and j<=#comp[i] and common:sub(j,j)==comp[i]:sub(j,j) do j=j+1 end
+              common=common:sub(1,j-1)
             end
-            matched = true
-            break
-          end
-        end
-        
-        if not matched then
-          local sane = sanitizeName(cmd)
-          if sane and tryRunPackageByName(sane, args) then
-            matched = true
-          end
-        end
-        
-        if not matched then
-          
-          local gbinPath = GBIN_DIR .. "/" .. cmd .. ".lua"
-          if fs.exists(gbinPath) and isPathInDir(gbinPath, GBIN_DIR) then
-            runOnTop(gbinPath, args)
-            matched = true
-          else
-            
-            local binPath = BIN_DIR .. "/" .. cmd .. ".lua"
-            if fs.exists(binPath) and isPathInDir(binPath, BIN_DIR) then
-              
-              runBinSilent(binPath, args)
-              matched = true
-            end
-          end
-        end
-        
-        if not matched then
-          if cmd:find("/") then
-            
-            local path = cmd
-            if fs.exists(path) then
-              
-              if isPathInDir(path, GUI_PACKAGES_DIR) then
-                runOnTop(path, args)
-              elseif isPathInDir(path, GBIN_DIR) then
-                runOnTop(path, args)
-              elseif isPathInDir(path, BIN_DIR) then
-                
-                runBinSilent(path, args)
-              else
-                
-                runNormally(path, args)
-              end
+            if #common>#tok then buf=buf..common:sub(#tok+1); redraw()
             else
-              term.setTextColor(colors.red)
-              print("Path not found: " .. tostring(path))
+              print()
+              term.setTextColor(colors.gray); print(table.concat(comp,"  "))
               term.setTextColor(colors.white)
+              io.write(promptStr); baseX,baseY=term.getCursorPos(); redraw()
             end
-          else
-            
-            local okCraft, craftErr = pcall(function()
-              if args and #args > 0 then shell.run(cmd, unpack(args)) else shell.run(cmd) end
-            end)
-            if not okCraft then
-              term.setTextColor(colors.red)
-              print("craftOS error or unknown command: " .. tostring(craftErr))
-              term.setTextColor(colors.white)
-            end
-            matched = true
           end
         end
       end
+    elseif ev[1]=="paste" and ev[2] then
+      buf=buf..ev[2]; redraw()
+    elseif ev[1]=="terminate" then
+      error("Terminated")
     end
   end
 end
 
-local function findOnTopProgramCandidate(p)
-  if type(p) ~= "string" then return nil, nil end
-  if p:sub(1,1) == "/" then
-    if fs.exists(p) and isPathInDir(p, GUI_PACKAGES_DIR) then
-      return "gui", p
-    elseif fs.exists(p) and isPathInDir(p, GBIN_DIR) then
-      return "gbin", p
+-- ─── Main REPL ────────────────────────────────────────────────────────────────
+local function repl()
+  -- Welcome
+  term.setTextColor(colors.orange); io.write("Ninx")
+  term.setTextColor(colors.white); print(" Shell v2.0 — type 'help' for info")
+  safeSetCursorBlink(true)
+
+  while true do
+    local prompt = makePrompt()
+    term.setTextColor(isRoot() and colors.red or colors.orange)
+
+    local ok, line = pcall(readLine, prompt, completion)
+    term.setTextColor(colors.white)
+    if not ok then print(); break end
+    if not line then print(); break end
+
+    line = line:gsub("^%s+",""):gsub("%s+$","")
+    if line == "" then goto continue end
+
+    local parts = splitWords(line)
+    local cmd = parts[1]
+    local args = {}
+    for i=2,#parts do args[#args+1]=parts[i] end
+
+    -- Builtins
+    if cmd == "exit" or cmd == "quit" then
+      print("Bye."); break
+
+    elseif cmd == "help" then printHelp()
+    elseif cmd == "clear" then term.clear(); term.setCursorPos(1,1)
+    elseif cmd == "pwd"   then print(currentCwd())
+    elseif cmd == "ver"   then
+      local f=fs.open("/ninx/.sys/v","r")
+      if f then local v=f.readAll();f.close(); print("Ninx v"..v)
+      else print("Ninx (version unknown)") end
+
+    elseif cmd == "cd" then doCD(args)
+    elseif cmd == "ls" or cmd == "dir" then doLS(args)
+
     else
-      return nil, nil
+      local matched = false
+
+      -- Check bin/ commands
+      local binPath = BIN_DIR .. "/" .. cmd .. ".lua"
+      if fs.exists(binPath) then
+        runBin(binPath, args); matched = true
+
+      -- Check packages (folder-based, then flat)
+      elseif tryRunPackage(cmd, args) then
+        matched = true
+
+      -- Try full path
+      elseif cmd:find("/") then
+        if fs.exists(cmd) then
+          if fs.isDir(cmd) then
+            doCD({cmd}); matched = true
+          else
+            runWithSandbox(cmd, args); matched = true
+          end
+        else
+          term.setTextColor(colors.red); print("File not found: "..cmd); term.setTextColor(colors.white)
+          matched = true
+        end
+
+      -- Fall back to CraftOS shell
+      else
+        local okC, errC = pcall(function()
+          if #args>0 then shell.run(cmd, unpack(args)) else shell.run(cmd) end
+        end)
+        if not okC then
+          term.setTextColor(colors.red); print("Command not found: "..cmd); term.setTextColor(colors.white)
+        end
+        matched = true
+      end
+      _ = matched
     end
-  else
-    
-    local gbinPath = GBIN_DIR .. "/" .. p .. ".lua"
-    if fs.exists(gbinPath) and isPathInDir(gbinPath, GBIN_DIR) then return "gbin", gbinPath end
-    local guiPath = GUI_PACKAGES_DIR .. "/" .. p .. ".lua"
-    if fs.exists(guiPath) and isPathInDir(guiPath, GUI_PACKAGES_DIR) then return "gui", guiPath end
-    return nil, nil
+
+    ::continue::
   end
 end
 
-if initArgs and #initArgs > 0 and initArgs[1] ~= "" then
+-- ─── Entry ────────────────────────────────────────────────────────────────────
+local initArgs = {...}
+-- Set working directory to user home if not already set
+if not _G.NINX_CWD then
+  _G.NINX_CWD = "/ninx/usr/" .. currentUser() .. "/home"
+  if not fs.exists(_G.NINX_CWD) then fs.makeDir(_G.NINX_CWD) end
+end
+
+if initArgs and #initArgs>0 and initArgs[1]~="" then
   local prog = initArgs[1]
-  local progArgs = {}
-  for i = 2, #initArgs do progArgs[#progArgs + 1] = initArgs[i] end
-  local onType, onPath = findOnTopProgramCandidate(prog)
-  local function runOnTopProgram()
-    local ok, err = pcall(function()
-      if onPath then
-        shell.run(onPath, unpack(progArgs))
-      else
-        if prog:sub(1,1) == "/" then
-          
-          if fs.exists(prog) then
-            if isPathInDir(prog, GUI_PACKAGES_DIR) or isPathInDir(prog, GBIN_DIR) then
-              runOnTop(prog, progArgs)
-            elseif isPathInDir(prog, BIN_DIR) then
-              runBinSilent(prog, progArgs)
-            else
-              runNormally(prog, progArgs)
-            end
-          else
-            term.setTextColor(colors.red)
-            print("Init path not found: " .. tostring(prog))
-            term.setTextColor(colors.white)
-          end
-        else
-          
-          local sane = sanitizeName(prog)
-          if sane and tryRunPackageByName(sane, progArgs) then
-            
-          else
-            local gbinPath = GBIN_DIR .. "/" .. prog .. ".lua"
-            if fs.exists(gbinPath) and isPathInDir(gbinPath, GBIN_DIR) then
-              runOnTop(gbinPath, progArgs)
-            else
-              local binPath = BIN_DIR .. "/" .. prog .. ".lua"
-              if fs.exists(binPath) and isPathInDir(binPath, BIN_DIR) then
-                runBinSilent(binPath, progArgs)
-              else
-                term.setTextColor(colors.red)
-                print("Init program not found (use full path or place in /ninx/.sys/bin or /ninx/packages): " .. tostring(prog))
-                term.setTextColor(colors.white)
-              end
-            end
-          end
-        end
-      end
-    end)
-    if not ok then
-      term.setTextColor(colors.red)
-      print("Program error:", tostring(err))
-      term.setTextColor(colors.white)
-    end
-    term.setTextColor(colors.white)
-    print("\nReturned to Ninx Shell.")
-    safeSetCursorBlink(true)
+  local pArgs = {}
+  for i=2,#initArgs do pArgs[#pArgs+1]=initArgs[i] end
+  local ok, err = pcall(function()
+    runWithSandbox(prog, pArgs)
+  end)
+  if not ok then
+    term.setTextColor(colors.red); print("Error: "..tostring(err)); term.setTextColor(colors.white)
   end
-  if onPath then
-    if parallel and type(parallel.waitForAny) == "function" then
-      parallel.waitForAny(
-        function() pcall(repl) end,
-        function() pcall(runOnTopProgram) end
-      )
-      pcall(repl)
-    else
-      pcall(runOnTopProgram)
-      pcall(repl)
-    end
-  else
-    
-    local normalBin = BIN_DIR .. "/" .. prog .. ".lua"
-    if fs.exists(normalBin) and isPathInDir(normalBin, BIN_DIR) then
-      runBinSilent(normalBin, progArgs)
-      pcall(repl)
-    else
-      
-      local sane = sanitizeName(prog)
-      if sane and tryRunPackageByName(sane, progArgs) then
-        pcall(repl)
-      else
-        local gbinPath = GBIN_DIR .. "/" .. prog .. ".lua"
-        if fs.exists(gbinPath) and isPathInDir(gbinPath, GBIN_DIR) then
-          runOnTop(gbinPath, progArgs)
-          pcall(repl)
-        else
-          local binPath = BIN_DIR .. "/" .. prog .. ".lua"
-          if fs.exists(binPath) and isPathInDir(binPath, BIN_DIR) then
-            runBinSilent(binPath, progArgs)
-            pcall(repl)
-          else
-            
-            local okCraft, craftErr = pcall(function()
-              if #progArgs > 0 then shell.run(prog, unpack(progArgs)) else shell.run(prog) end
-            end)
-            if not okCraft then
-              term.setTextColor(colors.red)
-              print("Init program not found or craftOS error: " .. tostring(craftErr))
-              term.setTextColor(colors.white)
-            end
-            pcall(repl)
-          end
-        end
-      end
-    end
-  end
-else
-  repl()
 end
+
+repl()

@@ -108,7 +108,7 @@ end
 if biosRequested then
   status("Info", colors.yellow, "Opening BIOS...")
   pcall(function() shell.run("/ninx/.sys/bios.lua") end)
-  return
+  -- After BIOS exits, continue to bootmenu (no return!)
 end
 
 status("Info", colors.yellow, "Booting bootmenu..."); sleep(0.5); pcall(function() shell.run("/ninx/.sys/boot/menu/bootmenu.lua") end)
