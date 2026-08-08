@@ -76,13 +76,16 @@ def write_pkg_meta(pkg_dir: Path, pkg_id: str, author: str, version: str, name: 
     print(f"  [OK] Wrote metadata: {meta_name}")
 
 def build_zip(pkg_dir: Path, output_path: Path, pkg_name: str) -> Path:
-    """Create a STORE-mode ZIP of pkg_dir contents."""
+    """Create a STORE-mode ZIP of pkg_dir contents, safely excluding metadata files from root recursion issues."""
     output_path.mkdir(parents=True, exist_ok=True)
     zip_file = output_path / f"{pkg_name}.zip"
 
     with zipfile.ZipFile(zip_file, "w", compression=zipfile.ZIP_STORED) as zf:
         for item in pkg_dir.rglob("*"):
             if item.is_file():
+                # Prevent adding the output zip itself if it happens to be inside devpkgs_dir
+                if item.resolve() == zip_file.resolve():
+                    continue
                 arcname = item.relative_to(pkg_dir)
                 zf.write(item, arcname)
 
@@ -92,12 +95,12 @@ def build_zip(pkg_dir: Path, output_path: Path, pkg_name: str) -> Path:
 def update_repo(repo_data: list, pkg_id: str, pkg_name: str, author: str, version: str,
                 description: str, zip_url: str) -> list:
     entry = {
-        "id":          pkg_id,
-        "name":        pkg_name,
-        "author":      author,
-        "version":     version,
-        "description": description,
-        "zip":         zip_url,
+        "id":           pkg_id,
+        "name":         pkg_name,
+        "author":       author,
+        "version":      version,
+        "description":  description,
+        "zip":          zip_url,
     }
     # Override existing entry with same id
     for i, existing in enumerate(repo_data):
@@ -168,7 +171,7 @@ def main():
         # Skip non-directories and nambuild.json
         if not item.is_dir():
             continue
-        # Skip hidden dirs
+        # Skip hidden dirs (supports cross-platform hidden directories well)
         if item.name.startswith("."):
             continue
 
@@ -190,7 +193,7 @@ def main():
         print("[Note] No JsonPath configured — repo JSON not updated.")
     if not config.get("BaseUrl"):
         print("[Note] No BaseUrl configured in nambuild.json — zip URLs will be placeholder values.")
-        print("       Add 'BaseUrl': 'https://yourhost.com/pkgs/' to nambuild.json.")
+        print("      Add 'BaseUrl': 'https://yourhost.com/pkgs/' to nambuild.json.")
 
 if __name__ == "__main__":
     main()
